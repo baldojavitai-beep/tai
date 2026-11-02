@@ -291,7 +291,10 @@
   document.title = TITULO.replace(/^[^\p{L}\p{N}]+/u, "");
 
   /* ---------- Guardado de progreso (localStorage) ---------- */
-  const SAVE_KEY = "progreso_test_v1";
+  // Clave única por examen (según su ruta), para que cada página guarde su propio progreso
+  let rutaExamen = "";
+  try { rutaExamen = decodeURIComponent(location.pathname).replace(/index\.html$/i, "").replace(/\/+$/, ""); } catch (e) { rutaExamen = location.pathname; }
+  const SAVE_KEY = "progreso_test_v1:" + rutaExamen;
   function loadSaved() {
     try {
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
