@@ -1,0 +1,135 @@
+<!DOCTYPE html>
+<html lang="es">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>ROCKY BALBOA</title>
+<style>
+  html, body {
+    margin: 0;
+    height: 100%;
+    background: #000;
+    overflow: hidden;
+  }
+
+  /* GIF de fondo a pantalla completa, en bucle (los GIF se repiten solos) */
+  #fondo {
+    position: fixed;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    z-index: 1;
+  }
+
+  /* Capa negra con la palabra en blanco.
+     Con "multiply": negro x gif = negro, blanco x gif = gif.
+     Resultado: la palabra es una ventana transparente al GIF. */
+  #capa {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    mix-blend-mode: multiply;
+    z-index: 2;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    overflow: hidden;
+  }
+
+  #palabra {
+    color: #fff;
+    font-family: Impact, "Arial Black", "Helvetica Neue", sans-serif;
+    font-weight: 900;
+    font-size: 11vw;
+    letter-spacing: 0.02em;
+    white-space: nowrap;
+    opacity: 0;
+    transform: scale(1);
+    will-change: transform, opacity;
+    user-select: none;
+  }
+
+  /* Pantalla inicial negra (necesaria para poder reproducir el audio) */
+  #inicio {
+    position: fixed;
+    inset: 0;
+    background: #000;
+    z-index: 10;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    color: #888;
+    font-family: Arial, sans-serif;
+    letter-spacing: 0.3em;
+    font-size: 0.9rem;
+    cursor: pointer;
+    transition: opacity 0.6s;
+  }
+  #inicio.oculto { opacity: 0; pointer-events: none; }
+
+  /* Enlace invisible que permite pulsar el GIF */
+  #enlace-gif {
+    position: fixed;
+    inset: 0;
+    z-index: 5;
+    cursor: pointer;
+  }
+</style>
+</head>
+<body>
+
+<img id="fondo" src="1.gif" alt="">
+<div id="capa"><div id="palabra">BALDO Y JAVI</div></div>
+<div id="inicio">HAZ CLIC PARA ENTRAR</div>
+<a id="enlace-gif" href="indice.html" aria-label="Ir al índice"></a>
+
+<audio id="musica" src="1.mp3" loop preload="auto"></audio>
+
+<script>
+  const inicio  = document.getElementById('inicio');
+  const capa    = document.getElementById('capa');
+  const palabra = document.getElementById('palabra');
+  const musica  = document.getElementById('musica');
+
+  // Duraciones en milisegundos
+  const T_APARECER = 3000;   // la palabra aparece poco a poco
+  const T_ZOOM     = 7000;   // zoom hasta que solo se ve el GIF
+  const ESCALA_MAX = 80;     // cuánto crece la palabra
+
+  function animar() {
+    const t0 = performance.now();
+
+    function frame(ahora) {
+      const t = ahora - t0;
+
+      // Fase 1: aparece (transparente sobre el GIF)
+      palabra.style.opacity = Math.min(t / T_APARECER, 1);
+
+      // Fase 2: zoom exponencial (sensación de velocidad constante)
+      const z = Math.min(Math.max((t - T_APARECER * 0.6) / T_ZOOM, 0), 1);
+      const escala = Math.exp(Math.log(ESCALA_MAX) * z);
+      palabra.style.transform = `scale(${escala})`;
+
+      // Al final, la capa negra se desvanece para que quede solo el GIF
+      const fin = Math.min(Math.max((z - 0.85) / 0.15, 0), 1);
+      capa.style.opacity = 1 - fin;
+
+      if (z < 1) {
+        requestAnimationFrame(frame);
+      } else {
+        capa.remove(); // solo queda el GIF en bucle
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  inicio.addEventListener('click', () => {
+    musica.volume = 0.8;
+    musica.play().catch(() => {});
+    inicio.classList.add('oculto');
+    animar();
+  });
+</script>
+</body>
+</html>
