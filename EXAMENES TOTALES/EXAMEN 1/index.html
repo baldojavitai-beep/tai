@@ -599,7 +599,7 @@
         if (pos >= 0) { stopListening(); answer(pos); return true; }
       }
       for (const t of texts) {
-        if (/repet|otra vez|lee/.test(norm(t))) { readQuestion(); return true; }
+        if (/repit|repet|otra vez|lee/.test(norm(t))) { readQuestion(); return true; }
       }
     } else {
       for (const t of texts) {
@@ -641,7 +641,7 @@
     if (!SR) { setStatus("🔊 Este navegador no admite reconocimiento de voz: pulsa los botones (usa Chrome o Edge para hablar)."); return; }
     setStatus(answered
       ? "🎤 Te escucho: di «siguiente»" + (lastFail ? " o «explicación»" : "")
-      : "🎤 Te escucho: di triángulo, rombo, círculo o cuadrado (o «repetir»)");
+      : "🎤 Te escucho: di triángulo, rombo, círculo o cuadrado (o «repite»)");
   }
   function readQuestion() {
     if (!current) return;
