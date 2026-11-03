@@ -681,8 +681,30 @@
     speaking = false;
     setStatus("");
   }
+  /* Mantener la pantalla encendida mientras el modo audio está activo */
+  let wakeLock = null;
+  async function getWake() {
+    if (!audioMode || !("wakeLock" in navigator) || wakeLock) return;
+    try {
+      wakeLock = await navigator.wakeLock.request("screen");
+      wakeLock.addEventListener("release", () => { wakeLock = null; });
+    } catch (e) { wakeLock = null; }
+  }
+  function releaseWake() {
+    if (wakeLock) { try { wakeLock.release(); } catch (e) {} wakeLock = null; }
+  }
+  document.addEventListener("visibilitychange", () => {
+    if (document.visibilityState === "visible" && audioMode) {
+      getWake();
+      if (current && !$("screenGame").classList.contains("hidden")) {
+        if (!answered) readQuestion(); else { listenMsg(); startListening(); }
+      }
+    }
+  });
+
   function applyAudio(on) {
     audioMode = on;
+    if (on) getWake(); else releaseWake();
     const b = $("audioBtn");
     b.setAttribute("aria-pressed", on ? "true" : "false");
     b.textContent = on ? "🔊 Modo audio: activo" : "🔊 Modo audio";
