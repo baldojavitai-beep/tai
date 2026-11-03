@@ -118,7 +118,7 @@
   .why-btn { display: block; margin-top: 10px; background: var(--accent); color: var(--accent-text); border: 0; border-radius: 10px; padding: 10px 16px; min-height: 44px; font-weight: bold; }
   .why-btn:hover { filter: brightness(1.08); }
   .feedback .why { color: var(--text); font-weight: normal; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
-  .next-row { margin-top: 14px; text-align: center; }
+  .next-row { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 
   /* Final */
   .stats { display: grid; grid-template-columns: repeat(auto-fit, minmax(210px, 1fr)); gap: 12px; margin: 18px 0; }
@@ -131,17 +131,9 @@
 </head>
 <body>
 <div class="wrap">
-  <header>
-    <h1 id="titulo"></h1>
-    <div class="header-btns">
-      <button class="theme-btn" id="themeBtn" aria-label="Cambiar entre modo claro y oscuro">🌙 Modo oscuro</button>
-      <button class="theme-btn" id="audioBtn" aria-pressed="false" aria-label="Activar o desactivar el modo audio">🔊 Modo audio</button>
-      <button class="theme-btn" id="visualBtn" aria-pressed="false" aria-label="Activar o desactivar visual suave en las respuestas">🎨 Visual</button>
-    </div>
-  </header>
-
   <!-- Inicio -->
   <section id="screenStart" class="card start center">
+    <h1 id="titulo" style="font-size:1.05rem;margin:0 0 10px;color:var(--muted)"></h1>
     <h2>¡Prepárate para el test!</h2>
     <p><b id="totalQ">0</b> preguntas en la baraja.</p>
     <ul>
@@ -159,7 +151,13 @@
 
   <!-- Juego -->
   <section id="screenGame" class="hidden">
-    <div class="topbar">
+    <div class="audio-status hidden" id="audioStatus" role="status" aria-live="polite"></div>
+    <div class="question" id="qText"></div>
+    <div class="answers" id="answers"></div>
+    <div id="feedback" class="feedback hidden" role="status" aria-live="polite"></div>
+    <div class="next-row" id="nextRow"><button class="big-btn hidden" id="nextBtn">Siguiente ➜</button></div>
+    <div class="kbd-hint">Teclado: 1-4 para responder · Enter para continuar</div>
+    <div class="topbar" style="justify-content:center;margin-top:14px">
       <span>Pendientes: <b id="pending">0</b></span>
       <span>Superadas: <b id="done">0</b> / <b id="total">0</b></span>
       <span>Aciertos: <b id="hits">0</b></span>
@@ -167,12 +165,6 @@
       <span id="repeatTag" class="hidden">🔁 Pregunta repetida</span>
     </div>
     <div class="progress"><div id="bar"></div></div>
-    <div class="audio-status hidden" id="audioStatus" role="status" aria-live="polite"></div>
-    <div class="question" id="qText"></div>
-    <div class="answers" id="answers"></div>
-    <div id="feedback" class="feedback hidden" role="status" aria-live="polite"></div>
-    <div class="next-row"><button class="big-btn hidden" id="nextBtn">Siguiente ➜</button></div>
-    <div class="kbd-hint">Teclado: 1-4 para responder · Enter para continuar</div>
   </section>
 
   <!-- Final -->
@@ -186,6 +178,12 @@
     </div>
     <p class="kbd-hint" id="reportHint"></p>
   </section>
+
+  <footer class="header-btns" style="justify-content:center;margin-top:28px">
+    <button class="theme-btn" id="themeBtn" aria-label="Cambiar entre modo claro y oscuro">🌙 Modo oscuro</button>
+    <button class="theme-btn" id="audioBtn" aria-pressed="false" aria-label="Activar o desactivar el modo audio">🔊 Modo audio</button>
+    <button class="theme-btn" id="visualBtn" aria-pressed="false" aria-label="Activar o desactivar visual suave en las respuestas">🎨 Visual</button>
+  </footer>
 </div>
 
 <script src="preguntas.js"></script>
@@ -385,6 +383,8 @@
       box.appendChild(b);
     });
     $("feedback").className = "feedback hidden";
+    $("feedback").textContent = "";
+    const oldWhy = $("whyBtn"); if (oldWhy) oldWhy.remove();
     $("nextBtn").classList.add("hidden");
     updateTopbar();
     saveProgress();
@@ -424,25 +424,25 @@
       // Reinsertar en posición aleatoria, nunca la siguiente (si hay más preguntas)
       const L = queue.length;
       queue.splice(randInt(Math.min(2, L), L), 0, idx);
-      fb.className = "feedback ko";
-      fb.textContent = "❌ Fallaste. Volverá a salir más adelante.";
-      const r = document.createElement("div");
-      r.className = "right";
-      r.textContent = "Respuesta correcta: " + p.o[p.a];
-      fb.appendChild(r);
+      // Sin recuadro rojo: la respuesta correcta ya queda marcada en verde.
+      // El botón de explicación va junto al de "Siguiente".
+      fb.className = "feedback hidden";
+      fb.textContent = "";
       if (p.e) {
         const eb = document.createElement("button");
         eb.type = "button";
-        eb.className = "why-btn";
+        eb.id = "whyBtn";
+        eb.className = "big-btn secondary";
         eb.textContent = "💡 Ver explicación";
         const w = document.createElement("div");
-        w.className = "why hidden";
+        w.className = "why";
         w.textContent = p.e;
+        fb.appendChild(w);
         eb.addEventListener("click", () => {
-          const open = w.classList.toggle("hidden");
-          eb.textContent = open ? "💡 Ver explicación" : "🙈 Ocultar explicación";
+          const hidden = fb.classList.toggle("hidden");
+          eb.textContent = hidden ? "💡 Ver explicación" : "🙈 Ocultar explicación";
         });
-        fb.append(eb, w);
+        $("nextRow").insertBefore(eb, $("nextBtn"));
       }
     }
     current.pendingAfter = true;
@@ -654,8 +654,8 @@
   function speakExplanation() {
     const p = PREGUNTAS[current.idx];
     const fb = $("feedback");
-    const w = fb.querySelector(".why"), b = fb.querySelector(".why-btn");
-    if (w && w.classList.contains("hidden") && b) b.click();
+    const b = $("whyBtn");
+    if (b && fb.classList.contains("hidden")) b.click();
     setStatus("🔊 Leyendo la explicación…");
     speak(p.e || "No hay explicación para esta pregunta.", () => { listenMsg(); startListening(); });
   }
