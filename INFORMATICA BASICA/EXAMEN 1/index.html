@@ -657,7 +657,7 @@
     const b = $("whyBtn");
     if (b && fb.classList.contains("hidden")) b.click();
     setStatus("🔊 Leyendo la explicación…");
-    speak(p.e || "No hay explicación para esta pregunta.", () => { listenMsg(); startListening(); });
+    speak(p.e || "No hay explicación para esta pregunta.", () => { if (audioMode && answered) proceed(); });
   }
   function audioAfterAnswer(ok) {
     lastFail = !ok;
