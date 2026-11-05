@@ -187,7 +187,7 @@
       <li>Si fallas, volverá a salir más adelante.</li>
       <li>Termina cuando la baraja se agota.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 7</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 8</div>
   </section>
 
   <!-- Juego -->
@@ -214,7 +214,7 @@
     <p class="center" style="font-size:1.2rem">⏱ Has tardado <b id="timeBig"></b> en completar la baraja.</p>
     <div class="stats" id="stats"></div>
     <div class="actions">
-      <button class="big-btn" id="reportBtn">⬇ Descargar informe</button>
+      <button class="big-btn" id="reportBtn">⬇ Descargar informe (PDF)</button>
       <button class="big-btn secondary" id="restartBtn">🔄 Jugar de nuevo</button>
     </div>
     <p class="kbd-hint" id="reportHint"></p>
@@ -228,6 +228,7 @@
   </footer>
 </div>
 
+<script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
 <script>
 (function () {
   "use strict";
@@ -741,47 +742,101 @@
       d.append(a, b); box.appendChild(d);
     });
     $("reportHint").textContent = r.over3.length
-      ? "El informe incluirá las " + r.over3.length + " pregunta(s) que fallaste más de 2 veces, con su respuesta correcta."
+      ? "El informe PDF incluirá las " + r.over3.length + " pregunta(s) que fallaste más de 2 veces, con su respuesta correcta."
       : "No has fallado ninguna pregunta más de 2 veces: el informe contendrá solo el resumen.";
     $("done").textContent = r.total; $("bar").style.width = "100%";
     show("screenEnd");
     if (audioMode) audioFinish(r);
   }
 
+  /* Nombre del informe: título del temario (h1) + fecha de hoy dd-mm-aa.
+     (Windows/macOS no permiten "/" en nombres de archivo, por eso se usa "-") */
+  function reportFileName() {
+    const h1 = ($("titulo").textContent || TITULO || "Informe").trim();
+    const limpio = h1
+      .replace(/^[^\p{L}\p{N}]+/u, "")            // quita emojis/símbolos del principio
+      .replace(/[\\/:*?"<>|\u0000-\u001f]/g, " ")  // caracteres prohibidos en nombres de archivo
+      .replace(/\s+/g, " ").trim() || "Informe";
+    const d = new Date();
+    const dd = String(d.getDate()).padStart(2, "0");
+    const mm = String(d.getMonth() + 1).padStart(2, "0");
+    const aa = String(d.getFullYear()).slice(-2);
+    return limpio + " " + dd + "-" + mm + "-" + aa + ".pdf";
+  }
+
+  // Deja solo caracteres que la fuente estándar del PDF (Helvetica) sabe dibujar
+  function pdfSafe(s) {
+    return String(s)
+      .replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
+      .replace(/[–—]/g, "-").replace(/…/g, "...")
+      .replace(/[^\u0009\u000A -~ -ÿ]/gu, "")
+      .replace(/[ \t]+/g, " ").trim();
+  }
+
   function downloadReport() {
+    const J = window.jspdf && window.jspdf.jsPDF;
+    if (!J) {
+      alert("No se pudo cargar la librería de PDF (se necesita conexión a internet la primera vez). Inténtalo de nuevo.");
+      return;
+    }
     const r = summary();
     const fecha = new Date().toLocaleString("es-ES");
-    let html = '<!DOCTYPE html><html lang="es"><head><meta charset="UTF-8"><title>Informe del test</title>' +
-      '<style>body{font-family:Verdana,Tahoma,sans-serif;max-width:820px;margin:30px auto;padding:0 16px;line-height:1.55;color:#1d1b2e}' +
-      'h1{color:#46178f}table{border-collapse:collapse;width:100%;margin:10px 0 24px}td,th{border:1px solid #ccc;padding:8px;text-align:left}' +
-      '.q{border:2px solid #d9daea;border-radius:12px;padding:14px 16px;margin:14px 0;page-break-inside:avoid}' +
-      '.f{color:#c8203a;font-weight:bold}.a{color:#1f8a3b;font-weight:bold}.e{margin-bottom:0}</style></head><body>' +
-      '<h1>Informe del test · ' + esc(TITULO) + '</h1><p>Archivo: ' + esc(currentBank || "") + ' · Generado el ' + esc(fecha) + '</p>' +
-      '<h2>Resumen</h2><table>' +
-      '<tr><th>Preguntas de la baraja</th><td>' + r.total + '</td></tr>' +
-      '<tr><th>Acertadas a la primera</th><td>' + r.firstTry + ' (' + Math.round(r.firstTry / r.total * 100) + ' %)</td></tr>' +
-      '<tr><th>Falladas al menos una vez</th><td>' + r.everFailed + '</td></tr>' +
-      '<tr><th>Falladas más de 2 veces</th><td>' + r.over3.length + '</td></tr>' +
-      '<tr><th>Respuestas dadas / fallos totales</th><td>' + r.attempts + ' / ' + r.failsTotal + '</td></tr>' +
-      '<tr><th>Tiempo total</th><td>' + esc(fmtTime(r.time)) + '</td></tr></table>' +
-      '<h2>Preguntas falladas más de 2 veces</h2>';
+    const doc = new J({ unit: "mm", format: "a4" });
+    const W = doc.internal.pageSize.getWidth(), H = doc.internal.pageSize.getHeight();
+    const M = 18, maxW = W - 2 * M, LH = 5.6;
+    let y = M;
+
+    const need = (h) => { if (y + h > H - M) { doc.addPage(); y = M; } };
+    const text = (str, opt) => {
+      opt = opt || {};
+      doc.setFont("helvetica", opt.bold ? "bold" : "normal");
+      doc.setFontSize(opt.size || 11);
+      doc.setTextColor.apply(doc, opt.color || [29, 27, 46]);
+      const lines = doc.splitTextToSize(pdfSafe(str), maxW - (opt.indent || 0));
+      const lh = (opt.size || 11) * 0.5;
+      lines.forEach((ln) => { need(lh); doc.text(ln, M + (opt.indent || 0), y + lh * 0.8); y += lh; });
+      y += opt.after || 0;
+    };
+
+    text("Informe del test", { bold: true, size: 20, color: [70, 23, 143], after: 2 });
+    text(TITULO, { bold: true, size: 13, after: 1 });
+    text("Archivo: " + (currentBank || "") + "  ·  Generado el " + fecha, { size: 9, color: [93, 90, 117], after: 6 });
+
+    text("Resumen", { bold: true, size: 14, after: 2 });
+    const filas = [
+      ["Preguntas de la baraja", String(r.total)],
+      ["Acertadas a la primera", r.firstTry + " (" + Math.round(r.firstTry / r.total * 100) + " %)"],
+      ["Falladas al menos una vez", String(r.everFailed)],
+      ["Falladas más de 2 veces", String(r.over3.length)],
+      ["Respuestas dadas / fallos totales", r.attempts + " / " + r.failsTotal],
+      ["Tiempo total", fmtTime(r.time)]
+    ];
+    filas.forEach(([k, v], i) => {
+      need(8);
+      if (i % 2 === 0) { doc.setFillColor(243, 244, 251); doc.rect(M, y, maxW, 7, "F"); }
+      doc.setFont("helvetica", "bold"); doc.setFontSize(10.5); doc.setTextColor(29, 27, 46);
+      doc.text(pdfSafe(k), M + 2, y + 5);
+      doc.setFont("helvetica", "normal");
+      doc.text(pdfSafe(v), M + maxW * 0.62, y + 5);
+      y += 7;
+    });
+    y += 8;
+
+    text("Preguntas falladas más de 2 veces", { bold: true, size: 14, after: 3 });
     if (!r.over3.length) {
-      html += "<p>No hay ninguna pregunta fallada más de 2 veces. ¡Buen trabajo!</p>";
+      text("No hay ninguna pregunta fallada más de 2 veces. ¡Buen trabajo!");
     } else {
       r.over3.sort((a, b) => b.s.fails - a.s.fails).forEach((o) => {
         const p = PREGUNTAS[o.i];
-        html += '<div class="q"><p><b>' + (o.i + 1) + '. ' + esc(p.q) + '</b></p>' +
-          '<p class="f">Veces fallada: ' + o.s.fails + '</p>' +
-          '<p class="a" style="margin-bottom:0">Respuesta correcta: ' + esc(p.o[p.a]) + '</p></div>';
+        need(30);
+        doc.setDrawColor(217, 218, 234); doc.line(M, y, W - M, y); y += 3;
+        text((o.i + 1) + ". " + p.q, { bold: true, after: 1 });
+        text("Veces fallada: " + o.s.fails, { bold: true, color: [200, 32, 58], after: 1 });
+        text("Respuesta correcta: " + p.o[p.a], { bold: true, color: [31, 138, 59], after: 4 });
       });
     }
-    html += "</body></html>";
-    const blob = new Blob([html], { type: "text/html;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = "informe_test.html";
-    document.body.appendChild(a); a.click(); a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
+
+    doc.save(reportFileName());
   }
 
   /* ---------- Modo audio (voz) ---------- */
