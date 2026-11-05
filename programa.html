@@ -187,7 +187,7 @@
       <li>Si fallas, volverá a salir más adelante.</li>
       <li>Termina cuando la baraja se agota.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 6</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 7</div>
   </section>
 
   <!-- Juego -->
@@ -712,7 +712,7 @@
     const everFailed = stats.filter((s) => s.fails > 0).length;
     const attempts = stats.reduce((a, s) => a + s.attempts, 0);
     const failsTotal = stats.reduce((a, s) => a + s.fails, 0);
-    const over3 = stats.map((s, i) => ({ s, i })).filter((o) => o.s.fails > 3);
+    const over3 = stats.map((s, i) => ({ s, i })).filter((o) => o.s.fails > 2);
     return { total, firstTry, everFailed, attempts, failsTotal, over3, time: endTime - startTime };
   }
 
@@ -726,7 +726,7 @@
       [r.firstTry + " / " + r.total, "acertadas a la primera"],
       [Math.round(r.firstTry / r.total * 100) + " %", "de acierto a la primera"],
       [r.everFailed, "preguntas falladas al menos una vez"],
-      [r.over3.length, "falladas más de 3 veces"],
+      [r.over3.length, "falladas más de 2 veces"],
       [r.attempts, "respuestas dadas en total"],
       [r.failsTotal, "fallos en total"],
       [fmtTime(r.time), "tiempo total"]
@@ -741,8 +741,8 @@
       d.append(a, b); box.appendChild(d);
     });
     $("reportHint").textContent = r.over3.length
-      ? "El informe incluirá las " + r.over3.length + " pregunta(s) que fallaste más de 3 veces, con su respuesta correcta."
-      : "No has fallado ninguna pregunta más de 3 veces: el informe contendrá solo el resumen.";
+      ? "El informe incluirá las " + r.over3.length + " pregunta(s) que fallaste más de 2 veces, con su respuesta correcta."
+      : "No has fallado ninguna pregunta más de 2 veces: el informe contendrá solo el resumen.";
     $("done").textContent = r.total; $("bar").style.width = "100%";
     show("screenEnd");
     if (audioMode) audioFinish(r);
@@ -761,12 +761,12 @@
       '<tr><th>Preguntas de la baraja</th><td>' + r.total + '</td></tr>' +
       '<tr><th>Acertadas a la primera</th><td>' + r.firstTry + ' (' + Math.round(r.firstTry / r.total * 100) + ' %)</td></tr>' +
       '<tr><th>Falladas al menos una vez</th><td>' + r.everFailed + '</td></tr>' +
-      '<tr><th>Falladas más de 3 veces</th><td>' + r.over3.length + '</td></tr>' +
+      '<tr><th>Falladas más de 2 veces</th><td>' + r.over3.length + '</td></tr>' +
       '<tr><th>Respuestas dadas / fallos totales</th><td>' + r.attempts + ' / ' + r.failsTotal + '</td></tr>' +
       '<tr><th>Tiempo total</th><td>' + esc(fmtTime(r.time)) + '</td></tr></table>' +
-      '<h2>Preguntas falladas más de 3 veces</h2>';
+      '<h2>Preguntas falladas más de 2 veces</h2>';
     if (!r.over3.length) {
-      html += "<p>No hay ninguna pregunta fallada más de 3 veces. ¡Buen trabajo!</p>";
+      html += "<p>No hay ninguna pregunta fallada más de 2 veces. ¡Buen trabajo!</p>";
     } else {
       r.over3.sort((a, b) => b.s.fails - a.s.fails).forEach((o) => {
         const p = PREGUNTAS[o.i];
