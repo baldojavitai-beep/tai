@@ -1,0 +1,11 @@
+VERSION 5
+
+-Las preguntas y las respuestas salen en orden aleatorio.
+-Si aciertas, la pregunta sale de la baraja.
+-Si fallas, volverá a salir más adelante.
+-Termina cuando la baraja se agota.
+-Puedes poner un modo audio y controlarlo por la voz con comandos como siguiente, explicación, triángulo, círculo, rombo, cuadrado, o repite (repetirá la pregunta).
+-SI EN EL MODO AUDIO PIDO EXPLICACIÓN, DESPUES DE DARLA PASA AUTOMATICAMENTE A LA SIGUIENTE PREGUNTA
+-EN EL MODO AUDIO, PUEDE AUMENTAR LA VELOCIDAD AL DOBLE Y SEPARA MEJOR LAS PREGUNTAS
+-HACE UNA LISTA DE LOS TEST SIEMPRE QUE ESEN ALOJADOS EN GITHUB.IO EN LA MISMA CARPETA QUE EL PROGRAMA
+-SI ESTA ALOJADO EN XAMPP TAMBIÉN HACE UNA LISTA DE LOS TEST PARA PODER PROBARLO EN LOCAL CON XAMPP ACTIVO,NECESITA TENER listar.php TAMBIEN EN LA MISMA CARPETA
