@@ -172,6 +172,8 @@
         <ul id="bankList" role="listbox" class="hidden"></ul>
       </div>
       <p class="bank-msg" id="bankMsg" role="status" aria-live="polite"></p>
+      <button type="button" class="big-btn secondary hidden" id="folderBtn" style="min-height:44px;padding:10px 20px">📁 Elegir carpeta de preguntas</button>
+      <input type="file" id="folderInput" class="hidden" webkitdirectory multiple>
     </div>
 
     <p style="margin:0 0 8px">
@@ -187,7 +189,7 @@
       <li>Si fallas, volverá a salir más adelante.</li>
       <li>Termina cuando la baraja se agota.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 8</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 9</div>
   </section>
 
   <!-- Juego -->
@@ -242,9 +244,11 @@
      Opción A (manual, la más fiable): escribe aquí los nombres.
          const ARCHIVOS = ["preguntas.js", "tema2.js", "examen_2023.js"];
 
-     Opción B (automática): deja la lista vacía. Si la página está en
-     GitHub Pages (usuario.github.io/repo/), se leerá la carpeta con la
-     API de GitHub y se listarán todos los .js (salvo los de EXCLUIR).
+     Opción B (automática): deja la lista vacía.
+       - En GitHub Pages (usuario.github.io/repo/) se lee la carpeta con la API de GitHub.
+       - Con XAMPP/PHP se usa listar.php.
+       - Abierto como archivo local (file://) aparece el botón
+         "Elegir carpeta de preguntas" para seleccionar la carpeta con los .js.
      ===================================================================== */
   const ARCHIVOS = [];
   const EXCLUIR = [];                  // p. ej. ["utilidades.js"]
@@ -480,6 +484,74 @@
     if (listOpen() && !$("combo").contains(e.target)) closeList(true);
   });
 
+  /* ---------- Modo local (file://) ---------- */
+  const LOCAL = location.protocol === "file:";
+  let localSource = null;      // {dir: handle} o {map: Map(nombre -> File)}
+  let pendingHandle = null;
+  const idb = {
+    open() { return new Promise((res, rej) => { const r = indexedDB.open("bancos_test", 1); r.onupgradeneeded = () => r.result.createObjectStore("h"); r.onsuccess = () => res(r.result); r.onerror = () => rej(r.error); }); },
+    async get(k) { try { const db = await this.open(); return await new Promise((res) => { const q = db.transaction("h").objectStore("h").get(k); q.onsuccess = () => res(q.result || null); q.onerror = () => res(null); }); } catch (e) { return null; } },
+    async set(k, v) { try { const db = await this.open(); await new Promise((res) => { const t = db.transaction("h", "readwrite"); t.objectStore("h").put(v, k); t.oncomplete = res; t.onerror = res; }); } catch (e) {} }
+  };
+  const isBankName = (n) => /\.js$/i.test(n) && !EXCLUIR.includes(n);
+  const sortNames = (a) => a.sort((x, y) => x.localeCompare(y, "es", { numeric: true, sensitivity: "base" }));
+
+  async function listLocal() {
+    const names = [];
+    if (localSource.dir) {
+      for await (const [name, h] of localSource.dir.entries()) if (h.kind === "file" && isBankName(name)) names.push(name);
+    } else {
+      localSource.map.forEach((_, name) => names.push(name));
+    }
+    return sortNames(names);
+  }
+  async function readLocal(name) {
+    if (localSource.dir) return (await (await localSource.dir.getFileHandle(name)).getFile()).text();
+    return localSource.map.get(name).text();
+  }
+  async function useHandle(h, save) {
+    localSource = { dir: h };
+    pendingHandle = null;
+    if (save) await idb.set("dir:" + rutaExamen, h);
+    $("folderBtn").textContent = "📁 Cambiar carpeta («" + h.name + "»)";
+    await setBanks(await listLocal());
+  }
+  async function pickFolder() {
+    if (pendingHandle) {
+      try { if ((await pendingHandle.requestPermission({ mode: "read" })) === "granted") return useHandle(pendingHandle, false); } catch (e) {}
+      pendingHandle = null;
+    }
+    if (window.showDirectoryPicker) {
+      try { return await useHandle(await showDirectoryPicker({ mode: "read" }), true); }
+      catch (e) { if (e && e.name === "AbortError") return; }
+    }
+    $("folderInput").click();   // Firefox u otros: selector clásico de carpeta
+  }
+  $("folderBtn").addEventListener("click", pickFolder);
+  $("folderInput").addEventListener("change", async (e) => {
+    const map = new Map();
+    Array.from(e.target.files).forEach((f) => {
+      const parts = (f.webkitRelativePath || f.name).split("/");
+      if (parts.length <= 2 && isBankName(f.name)) map.set(f.name, f);   // solo la carpeta elegida, sin subcarpetas
+    });
+    e.target.value = "";
+    localSource = { map };
+    $("folderBtn").textContent = "📁 Cambiar carpeta";
+    await setBanks(sortNames(Array.from(map.keys())));
+  });
+  async function initLocal() {
+    $("folderBtn").classList.remove("hidden");
+    setBankMsg("Pulsa «Elegir carpeta» y selecciona la carpeta donde están los archivos .js de preguntas.");
+    const h = await idb.get("dir:" + rutaExamen);
+    if (!h) return;
+    try {
+      if ((await h.queryPermission({ mode: "read" })) === "granted") return useHandle(h, false);
+      pendingHandle = h;
+      $("folderBtn").textContent = "🔓 Reconectar carpeta «" + h.name + "»";
+      setBankMsg("Pulsa el botón para volver a dar acceso a la carpeta.");
+    } catch (e) {}
+  }
+
   /* ---------- Descubrir los archivos .js ---------- */
   async function discoverFiles() {
     if (ARCHIVOS.length) return ARCHIVOS.slice();
@@ -527,9 +599,13 @@
     $("resumeInfo").classList.add("hidden");
     setBankMsg("Cargando " + name + "…");
     try {
-      const res = await fetch(encodeURI(name), { cache: "no-cache" });
-      if (!res.ok) throw new Error("HTTP " + res.status);
-      const code = await res.text();
+      let code;
+      if (LOCAL && localSource) code = await readLocal(name);
+      else {
+        const res = await fetch(encodeURI(name), { cache: "no-cache" });
+        if (!res.ok) throw new Error("HTTP " + res.status);
+        code = await res.text();
+      }
       // Se ejecuta aislado: así funciona con const/let/var y se pueden cambiar de archivo sin errores
       const data = new Function(code + "\n;return { P: typeof PREGUNTAS !== 'undefined' ? PREGUNTAS : null, T: typeof TITULO !== 'undefined' ? TITULO : '' };")();
       if (my !== loadToken) return;      // se eligió otro archivo mientras cargaba
@@ -550,19 +626,23 @@
       PREGUNTAS = []; currentBank = null;
       $("totalQ").textContent = "0";
       $("titulo").textContent = "";
-      setBankMsg("No se pudo cargar «" + name + "» (" + err.message + ")." +
-        (location.protocol === "file:" ? " Abre la página desde un servidor (GitHub Pages), no como archivo local." : ""), true);
+      setBankMsg("No se pudo cargar «" + name + "» (" + err.message + ").", true);
     }
   }
 
-  async function initBanks() {
-    setBankMsg("Buscando archivos de preguntas…");
-    bankFiles = await discoverFiles();
+  async function setBanks(names) {
+    bankFiles = names;
+    if (!names.length) { setBankMsg("No hay archivos .js en esa carpeta.", true); return; }
     let pick = null;
     try { pick = localStorage.getItem("banco_elegido:" + rutaExamen); } catch (e) {}
     if (!pick || !bankFiles.includes(pick)) pick = bankFiles.includes(ARCHIVO_POR_DEFECTO) ? ARCHIVO_POR_DEFECTO : bankFiles[0];
     $("bankInput").value = pick;
     loadBank(pick);
+  }
+  async function initBanks() {
+    if (LOCAL && !ARCHIVOS.length) return initLocal();
+    setBankMsg("Buscando archivos de preguntas…");
+    await setBanks(await discoverFiles());
   }
 
   /* ---------- Juego ---------- */
@@ -767,9 +847,9 @@
   // Deja solo caracteres que la fuente estándar del PDF (Helvetica) sabe dibujar
   function pdfSafe(s) {
     return String(s)
-      .replace(/[‘’]/g, "'").replace(/[“”]/g, '"')
-      .replace(/[–—]/g, "-").replace(/…/g, "...")
-      .replace(/[^\u0009\u000A -~ -ÿ]/gu, "")
+      .replace(/[\u2018\u2019]/g, "'").replace(/[\u201C\u201D]/g, '"')
+      .replace(/[\u2013\u2014]/g, "-").replace(/\u2026/g, "...")
+      .replace(/[^\u0009\u000A\u0020-\u007E\u00A0-\u00FF]/g, "")
       .replace(/[ \t]+/g, " ").trim();
   }
 
@@ -848,7 +928,7 @@
   try { speedX2 = localStorage.getItem("velocidad") === "x2"; } catch (e) {}
   let audioMode = false, rec = null, recWanted = false, speaking = false, speakToken = 0, lastFail = false;
 
-  const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[̀-ͯ]/g, "");
+  const norm = (s) => String(s).toLowerCase().normalize("NFD").replace(/[\u0300-\u036f]/g, "");
   function setStatus(t) {
     const el = $("audioStatus");
     el.textContent = t || "";
