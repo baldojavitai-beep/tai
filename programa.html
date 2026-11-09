@@ -199,14 +199,15 @@
     </p>
     <p class="kbd-hint hidden" id="resumeInfo" style="margin:0 0 14px"></p>
 
-    <p><b id="totalQ">0</b> preguntas en la baraja.</p>
+    <p><b id="totalQ">0</b> preguntas en la baraja · <b id="totalLv">0</b> nivel(es) de hasta <span id="sizeLv">30</span> preguntas.</p>
     <ul>
-      <li>Las preguntas y las respuestas salen en orden aleatorio.</li>
-      <li>Si aciertas, la pregunta sale de la baraja.</li>
+      <li>Cada nivel agrupa 30 preguntas consecutivas del archivo.</li>
+      <li>Dentro del nivel, las preguntas y las respuestas salen en orden aleatorio.</li>
+      <li>Si aciertas, la pregunta sale de la baraja del nivel.</li>
       <li>Si fallas, volverá a salir más adelante.</li>
-      <li>Termina cuando la baraja se agota.</li>
+      <li>Al agotar el nivel ganas un premio y pasas al siguiente.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 12</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 13</div>
   </section>
 
   <!-- Modo corrección -->
@@ -247,6 +248,7 @@
     <div class="next-row" id="nextRow"><button class="big-btn hidden" id="nextBtn">Siguiente ➜</button></div>
     <div class="kbd-hint">Teclado: 1-4 para responder · Enter para continuar</div>
     <div class="topbar" style="justify-content:center;margin-top:14px">
+      <span>🎯 Nivel <b id="lvl">1</b> / <b id="lvlTotal">1</b></span>
       <span>Pendientes: <b id="pending">0</b></span>
       <span>Superadas: <b id="done">0</b> / <b id="total">0</b></span>
       <span>Aciertos: <b id="hits">0</b></span>
@@ -254,6 +256,19 @@
       <span id="repeatTag" class="hidden">🔁 Pregunta repetida</span>
     </div>
     <div class="progress"><div id="bar"></div></div>
+  </section>
+
+  <!-- Nivel superado -->
+  <section id="screenLevel" class="card hidden center">
+    <div id="lvlEmoji" style="font-size:4rem;line-height:1.2">🎉</div>
+    <h2 id="lvlTitle" style="margin:6px 0 8px"></h2>
+    <p id="lvlMsg" style="font-size:1.15rem;margin:0 0 6px"></p>
+    <div class="stats" id="lvlStats"></div>
+    <div class="actions">
+      <button class="big-btn" id="lvlNextBtn">Empezar nivel ➜</button>
+      <button class="big-btn secondary" id="lvlExitBtn">⏸ Salir (se guarda)</button>
+    </div>
+    <p class="kbd-hint">Enter para continuar</p>
   </section>
 
   <!-- Final -->
@@ -301,6 +316,7 @@
   const ARCHIVOS = [];
   const EXCLUIR = [];                  // p. ej. ["utilidades.js"]
   const ARCHIVO_POR_DEFECTO = "preguntas.js";
+  const TAM_NIVEL = 30;                // preguntas por nivel
 
   /* ---------- Datos del banco cargado ---------- */
   let PREGUNTAS = [];
@@ -389,6 +405,13 @@
     [523.25, 659.25, 783.99, 1046.5].forEach((f, i) => tone(f, i * 0.15, 0.25, "triangle", 0.3));
     tone(1318.5, 0.65, 0.5, "triangle", 0.3);
   }
+  function soundLevel() {         // fanfarria de premio al superar un nivel
+    const n = [523.25, 659.25, 783.99, 659.25, 783.99, 1046.5, 1318.5];
+    const t = [0, 0.12, 0.24, 0.42, 0.54, 0.66, 0.9];
+    n.forEach((f, i) => tone(f, t[i], i === n.length - 1 ? 0.7 : 0.16, "triangle", 0.32));
+    tone(261.63, 0.9, 0.7, "sine", 0.22);
+    tone(2093, 1.0, 0.5, "sine", 0.12);
+  }
 
   /* ---------- Estado del juego ---------- */
   const SHAPES = ["▲", "◆", "●", "■"];
@@ -399,6 +422,16 @@
   let answered = false;
   let startTime = 0, endTime = 0;
   let totalHits = 0, totalMisses = 0;
+  let level = 1;         // nivel actual (1..numLevels)
+  let pausedAt = null;   // tiempo acumulado congelado mientras se ve la pantalla de premio
+
+  const numLevels = () => Math.ceil(PREGUNTAS.length / TAM_NIVEL);
+  // Nivel k = preguntas [(k-1)*30, k*30) del array, en orden original
+  function levelIndices(lv) {
+    const a = (lv - 1) * TAM_NIVEL, b = Math.min(a + TAM_NIVEL, PREGUNTAS.length), out = [];
+    for (let i = a; i < b; i++) out.push(i);
+    return out;
+  }
 
   /* ---------- Guardado de progreso (localStorage) ---------- */
   // Clave única por examen (carpeta) Y por archivo de preguntas
@@ -414,7 +447,9 @@
       const d = JSON.parse(localStorage.getItem(SAVE_KEY));
       const n = PREGUNTAS.length;
       if (!d || d.total !== n || !Array.isArray(d.queue) || !Array.isArray(d.stats) || d.stats.length !== n) return null;
-      if (!d.queue.length || d.queue.some((i) => !Number.isInteger(i) || i < 0 || i >= n)) return null;
+      if (!Number.isInteger(d.level) || d.level < 1 || d.level > numLevels()) return null;   // guardados antiguos (sin niveles) se descartan
+      const a = (d.level - 1) * TAM_NIVEL, b = Math.min(a + TAM_NIVEL, n);
+      if (!d.queue.length || d.queue.some((i) => !Number.isInteger(i) || i < a || i >= b)) return null;
       return d;
     } catch (e) { return null; }
   }
@@ -422,8 +457,9 @@
     try {
       const q = current && !answered ? [current.idx].concat(queue) : queue;
       localStorage.setItem(SAVE_KEY, JSON.stringify({
-        total: PREGUNTAS.length, queue: q, stats: stats,
-        hits: totalHits, misses: totalMisses, elapsed: Date.now() - startTime
+        total: PREGUNTAS.length, level: level, queue: q, stats: stats,
+        hits: totalHits, misses: totalMisses,
+        elapsed: pausedAt !== null ? pausedAt : Date.now() - startTime
       }));
     } catch (e) {}
   }
@@ -432,11 +468,15 @@
     const d = PREGUNTAS.length ? loadSaved() : null;
     $("resumeBtn").classList.toggle("hidden", !d);
     $("resumeInfo").classList.toggle("hidden", !d);
-    if (d) $("resumeInfo").textContent = "Partida guardada: " + (d.total - d.queue.length) + " / " + d.total + " superadas · " + fmtTime(d.elapsed) + " de tiempo acumulado.";
+    if (d) {
+      const lvSize = Math.min(d.level * TAM_NIVEL, d.total) - (d.level - 1) * TAM_NIVEL;
+      $("resumeInfo").textContent = "Partida guardada: nivel " + d.level + " / " + numLevels() + " · " +
+        (lvSize - d.queue.length) + " / " + lvSize + " superadas en este nivel · " + fmtTime(d.elapsed) + " de tiempo acumulado.";
+    }
   }
 
   function show(id) {
-    ["screenStart", "screenGame", "screenEnd", "screenCorr"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
+    ["screenStart", "screenGame", "screenEnd", "screenCorr", "screenLevel"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
     $("corrBtn").classList.toggle("hidden", id !== "screenStart");
     window.scrollTo(0, 0);
   }
@@ -666,6 +706,8 @@
       SAVE_KEY = keyFor(name);
       $("bankInput").value = name;
       $("totalQ").textContent = PREGUNTAS.length;
+      $("totalLv").textContent = numLevels();
+      $("sizeLv").textContent = TAM_NIVEL;
       $("titulo").textContent = TITULO;
       document.title = TITULO.replace(/^[^\p{L}\p{N}]+/u, "");
       setBankMsg("");
@@ -676,6 +718,7 @@
       if (my !== loadToken) return;
       PREGUNTAS = []; currentBank = null;
       $("totalQ").textContent = "0";
+      $("totalLv").textContent = "0";
       $("titulo").textContent = "";
       setBankMsg("No se pudo cargar «" + name + "» (" + err.message + ").", true);
     }
@@ -701,7 +744,9 @@
     if (!PREGUNTAS.length) return;
     ctx();
     if (loadSaved() && !confirm("Hay una partida guardada. Si empiezas de nuevo, se perderá. ¿Continuar?")) return;
-    queue = shuffle(PREGUNTAS.map((_, i) => i));
+    level = 1;
+    pausedAt = null;
+    queue = shuffle(levelIndices(1));      // nivel 1 = primeras 30 preguntas del array
     stats = PREGUNTAS.map(() => ({ fails: 0, attempts: 0, firstTry: false }));
     totalHits = 0; totalMisses = 0;
     startTime = Date.now();
@@ -713,6 +758,8 @@
     ctx();
     const d = loadSaved();
     if (!d) { refreshResume(); return; }
+    level = d.level;
+    pausedAt = null;
     queue = d.queue.slice();
     stats = d.stats;
     totalHits = d.hits || 0; totalMisses = d.misses || 0;
@@ -722,10 +769,12 @@
   }
 
   function updateTopbar() {
-    const total = PREGUNTAS.length;
+    const total = levelIndices(level).length;     // preguntas del nivel actual
     // pendientes = cola + la actual mientras no se haya respondido
     // (si se falla, la pregunta ya se ha reinsertado en la cola)
     const pending = queue.length + (current && !answered ? 1 : 0);
+    $("lvl").textContent = level;
+    $("lvlTotal").textContent = numLevels();
     $("pending").textContent = pending;
     $("total").textContent = total;
     $("done").textContent = total - pending;
@@ -735,7 +784,7 @@
   }
 
   function nextQuestion() {
-    if (queue.length === 0) return finish();
+    if (queue.length === 0) return levelEnd();
     const idx = queue.shift();
     current = { idx, order: shuffle([0, 1, 2, 3]) };
     answered = false;
@@ -823,7 +872,7 @@
     updateTopbar();
     saveProgress();
     const nb = $("nextBtn");
-    nb.textContent = queue.length === 0 ? "Ver resultados 🏆" : "Siguiente ➜";
+    nb.textContent = queue.length === 0 ? (level >= numLevels() ? "Ver resultados 🏆" : "Terminar nivel 🎉") : "Siguiente ➜";
     nb.classList.remove("hidden");
     nb.focus({ preventScroll: true });
     if (audioMode) audioAfterAnswer(ok);
@@ -834,6 +883,69 @@
     if (advanceTimer) { clearTimeout(advanceTimer); advanceTimer = null; }
     if (!answered) return;
     current = null;
+    nextQuestion();
+  }
+
+  /* ---------- Fin de nivel ---------- */
+  const PREMIOS = [
+    ["🎉", "¡Nivel superado!", "¡Lo has clavado! Cada nivel te acerca a dominar el temario."],
+    ["🏅", "¡Medalla conseguida!", "Constancia pura. Esta medalla te la has ganado a pulso."],
+    ["🚀", "¡Despegando!", "Vas como un cohete. ¡Sigue así!"],
+    ["💪", "¡Qué fuerza!", "Un nivel más en el bolsillo. ¡Eres imparable!"],
+    ["⭐", "¡Estrella para ti!", "Gran trabajo. Respira un momento y a por el siguiente."],
+    ["🔥", "¡Estás on fire!", "Racha enorme. ¡Que no pare!"]
+  ];
+  let lastPrize = -1;
+  function levelEnd() {
+    current = null;
+    const lv = level, total = numLevels();
+    if (lv >= total) return finish();            // último nivel: pantalla final de siempre
+    const idxs = levelIndices(lv);
+    const first = idxs.filter((i) => stats[i].firstTry).length;
+    const fails = idxs.reduce((a, i) => a + stats[i].fails, 0);
+
+    // Congela el tiempo y deja guardado el inicio del siguiente nivel
+    pausedAt = Date.now() - startTime;
+    level = lv + 1;
+    queue = shuffle(levelIndices(level));
+    saveProgress();
+
+    let k; do { k = Math.floor(Math.random() * PREMIOS.length); } while (k === lastPrize && PREMIOS.length > 1);
+    lastPrize = k;
+    const pr = PREMIOS[k];
+    $("lvlEmoji").textContent = pr[0];
+    $("lvlTitle").textContent = pr[1] + " (Nivel " + lv + " de " + total + ")";
+    $("lvlMsg").textContent = pr[2];
+    const items = [
+      [first + " / " + idxs.length, "acertadas a la primera"],
+      [fails, "fallos en este nivel"],
+      [(lv * TAM_NIVEL > PREGUNTAS.length ? PREGUNTAS.length : lv * TAM_NIVEL) + " / " + PREGUNTAS.length, "preguntas completadas"],
+      [fmtTime(pausedAt), "tiempo acumulado"]
+    ];
+    const box = $("lvlStats");
+    box.innerHTML = "";
+    items.forEach(([n, l]) => {
+      const d = document.createElement("div"); d.className = "stat";
+      const a = document.createElement("div"); a.className = "n"; a.textContent = n;
+      const b = document.createElement("div"); b.className = "l"; b.textContent = l;
+      d.append(a, b); box.appendChild(d);
+    });
+    $("lvlNextBtn").textContent = "Empezar nivel " + level + " ➜";
+    soundLevel();
+    show("screenLevel");
+    $("lvlNextBtn").focus({ preventScroll: true });
+    if (audioMode) {
+      setStatus("🔊 " + pr[1]);
+      speak(pr[1] + " Has completado el nivel " + lv + " de " + total + ". Di siguiente para empezar el nivel " + level + ".", () => { listenMsgLevel(); startListening(); });
+    }
+  }
+  function listenMsgLevel() { if (SR) setStatus("🎤 Te escucho: di «siguiente» para empezar el nivel " + level); }
+  function startNextLevel() {
+    if ($("screenLevel").classList.contains("hidden")) return;
+    if (audioMode) { stopListening(); speakToken++; if (hasTTS) speechSynthesis.cancel(); speaking = false; }
+    startTime = Date.now() - (pausedAt || 0);
+    pausedAt = null;
+    show("screenGame");
     nextQuestion();
   }
 
@@ -1035,6 +1147,12 @@
   }
   function handleVoice(texts) {
     if (!audioMode) return false;
+    if (!$("screenLevel").classList.contains("hidden")) {
+      for (const t of texts) {
+        if (/siguiente|continu|adelante|empez/.test(norm(t))) { startNextLevel(); return true; }
+      }
+      return false;
+    }
     const gameVisible = !$("screenGame").classList.contains("hidden");
     if (!gameVisible) return false;
     if (!answered) {
@@ -1250,6 +1368,7 @@
     corrSaved.splice(corrIdx, 1);
     if (corrIdx >= PREGUNTAS.length) corrIdx = PREGUNTAS.length - 1;
     $("totalQ").textContent = PREGUNTAS.length;
+    $("totalLv").textContent = numLevels();
     renderCorr();
     $("corrMsg").textContent = "🗑️ Pregunta eliminada (se aplicará al generar el archivo)";
   }
@@ -1351,7 +1470,13 @@
   $("nextBtn").addEventListener("click", proceed);
   $("reportBtn").addEventListener("click", downloadReport);
   $("restartBtn").addEventListener("click", () => { audioHalt(); refreshResume(); show("screenStart"); });
+  $("lvlNextBtn").addEventListener("click", startNextLevel);
+  $("lvlExitBtn").addEventListener("click", () => { audioHalt(); refreshResume(); show("screenStart"); });
   document.addEventListener("keydown", (e) => {
+    if (!$("screenLevel").classList.contains("hidden")) {
+      if (e.key === "Enter" && e.target.id !== "lvlExitBtn") { e.preventDefault(); startNextLevel(); }
+      return;
+    }
     if ($("screenGame").classList.contains("hidden")) return;
     if (!answered && e.key >= "1" && e.key <= "4") answer(Number(e.key) - 1);
     else if (answered && e.key === "Enter") { e.preventDefault(); proceed(); }
