@@ -199,15 +199,15 @@
     </p>
     <p class="kbd-hint hidden" id="resumeInfo" style="margin:0 0 14px"></p>
 
-    <p><b id="totalQ">0</b> preguntas en la baraja · <b id="totalLv">0</b> nivel(es) de hasta <span id="sizeLv">30</span> preguntas.</p>
+    <p><b id="totalQ">0</b> preguntas en la baraja · <b id="totalLv">0</b> nivel(es) de hasta <span id="sizeLv">20</span> preguntas.</p>
     <ul>
-      <li>Cada nivel agrupa 30 preguntas consecutivas del archivo.</li>
+      <li>Cada nivel agrupa 20 preguntas consecutivas del archivo.</li>
       <li>Dentro del nivel, las preguntas y las respuestas salen en orden aleatorio.</li>
       <li>Si aciertas, la pregunta sale de la baraja del nivel.</li>
       <li>Si fallas, volverá a salir más adelante.</li>
       <li>Al agotar el nivel ganas un premio y pasas al siguiente.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 13</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 14</div>
   </section>
 
   <!-- Modo corrección -->
@@ -316,7 +316,7 @@
   const ARCHIVOS = [];
   const EXCLUIR = [];                  // p. ej. ["utilidades.js"]
   const ARCHIVO_POR_DEFECTO = "preguntas.js";
-  const TAM_NIVEL = 30;                // preguntas por nivel
+  const TAM_NIVEL = 20;                // preguntas por nivel
 
   /* ---------- Datos del banco cargado ---------- */
   let PREGUNTAS = [];
