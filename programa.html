@@ -146,8 +146,6 @@
   .why-btn { display: block; margin-top: 10px; background: var(--accent); color: var(--accent-text); border: 0; border-radius: 10px; padding: 10px 16px; min-height: 44px; font-weight: bold; }
   .why-btn:hover { filter: brightness(1.08); }
   .feedback .why { white-space: pre-wrap; color: var(--text); font-weight: normal; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
-  .force-row { margin-top: 14px; display: flex; justify-content: center; }
-  .force-btn[aria-pressed="true"] { border-color: var(--ok); color: var(--ok); }
   .next-row { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 
   /* Final */
@@ -159,7 +157,7 @@
   .kbd-hint { font-size: .78rem; color: var(--muted); text-align: center; margin-top: 12px; }
 
   /* Modo corrección */
-  body.corr #audioBtn, body.corr #speedBtn, body.corr #visualBtn, body.corr #creationBtn, body.corr #corrBtn { display: none !important; }
+  body.corr #audioBtn, body.corr #speedBtn, body.corr #visualBtn, body.corr #corrBtn { display: none !important; }
   #genBtn { display: none; }
   body.corr #genBtn { display: inline-block; }
   .corr-label { font-size: .8rem; font-weight: bold; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 18px 0 6px; }
@@ -170,6 +168,8 @@
     color: var(--text); background: var(--bg); border: 2px solid var(--border); border-radius: 12px; padding: 14px;
   }
   #corrE:focus { outline: 3px solid var(--accent); outline-offset: 1px; }
+  .del-btn { border-color: var(--ko); color: var(--ko); padding: 4px 14px; min-height: 36px; font-size: .85rem; }
+  .del-btn:hover:not(:disabled) { background: var(--ko); color: #fff; }
   .corr-msg { min-height: 1.4em; margin: 10px 0 0; font-size: .9rem; color: var(--ok); font-weight: bold; text-align: center; }
 </style>
 </head>
@@ -206,13 +206,13 @@
       <li>Si fallas, volverá a salir más adelante.</li>
       <li>Termina cuando la baraja se agota.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 11</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 12</div>
   </section>
 
   <!-- Modo corrección -->
   <section id="screenCorr" class="hidden">
     <div id="corrMain" class="card">
-      <div class="topbar"><span id="corrCount"></span></div>
+      <div class="topbar"><span id="corrCount"></span><button type="button" class="theme-btn del-btn" id="corrDel" aria-label="Eliminar esta pregunta del archivo">🗑️ Eliminar</button></div>
       <div class="progress"><div id="corrBar"></div></div>
       <div class="corr-label" style="margin-top:0">Pregunta</div>
       <div class="corr-box" id="corrQ"></div>
@@ -243,7 +243,6 @@
     <div class="audio-status hidden" id="audioStatus" role="status" aria-live="polite"></div>
     <div class="question" id="qText"></div>
     <div class="answers" id="answers"></div>
-    <div class="force-row hidden" id="forceRow"><button type="button" class="big-btn secondary force-btn" id="forceBtn" aria-pressed="false">📌 Forzar inclusión de esta pregunta</button></div>
     <div id="feedback" class="feedback hidden" role="status" aria-live="polite"></div>
     <div class="next-row" id="nextRow"><button class="big-btn hidden" id="nextBtn">Siguiente ➜</button></div>
     <div class="kbd-hint">Teclado: 1-4 para responder · Enter para continuar</div>
@@ -264,11 +263,9 @@
     <div class="stats" id="stats"></div>
     <div class="actions">
       <button class="big-btn" id="reportBtn">⬇ Descargar informe (PDF)</button>
-      <button class="big-btn hidden" id="summaryBtn">⬇ Descargar resumen (.js)</button>
       <button class="big-btn secondary" id="restartBtn">🔄 Jugar de nuevo</button>
     </div>
     <p class="kbd-hint" id="reportHint"></p>
-    <p class="kbd-hint hidden" id="summaryHint"></p>
   </section>
 
   <footer class="header-btns" style="justify-content:center;margin-top:28px">
@@ -277,7 +274,6 @@
     <button class="theme-btn" id="audioBtn" aria-pressed="false" aria-label="Activar o desactivar el modo audio">🔊 Modo audio</button>
     <button class="theme-btn" id="speedBtn" aria-pressed="false" aria-label="Alternar velocidad de lectura x1 / x2 en modo audio">⏩ Velocidad x1</button>
     <button class="theme-btn" id="visualBtn" aria-pressed="false" aria-label="Activar o desactivar visual suave en las respuestas">🎨 Visual</button>
-    <button class="theme-btn" id="creationBtn" aria-pressed="false" aria-label="Activar o desactivar el modo creación de un archivo resumen">🛠️ Modo creación</button>
     <button class="theme-btn" id="corrBtn" aria-label="Entrar en el modo corrección de explicaciones" disabled>✏️ Modo corrección</button>
   </footer>
 </div>
@@ -403,7 +399,6 @@
   let answered = false;
   let startTime = 0, endTime = 0;
   let totalHits = 0, totalMisses = 0;
-  let creationMode = false;   // modo creación de archivo resumen
 
   /* ---------- Guardado de progreso (localStorage) ---------- */
   // Clave única por examen (carpeta) Y por archivo de preguntas
@@ -442,8 +437,6 @@
 
   function show(id) {
     ["screenStart", "screenGame", "screenEnd", "screenCorr"].forEach((s) => $(s).classList.toggle("hidden", s !== id));
-    // El botón de modo creación solo se muestra (y se puede conmutar) en la pantalla de inicio
-    $("creationBtn").classList.toggle("hidden", id !== "screenStart");
     $("corrBtn").classList.toggle("hidden", id !== "screenStart");
     window.scrollTo(0, 0);
   }
@@ -709,7 +702,7 @@
     ctx();
     if (loadSaved() && !confirm("Hay una partida guardada. Si empiezas de nuevo, se perderá. ¿Continuar?")) return;
     queue = shuffle(PREGUNTAS.map((_, i) => i));
-    stats = PREGUNTAS.map(() => ({ fails: 0, attempts: 0, firstTry: false, forced: false }));
+    stats = PREGUNTAS.map(() => ({ fails: 0, attempts: 0, firstTry: false }));
     totalHits = 0; totalMisses = 0;
     startTime = Date.now();
     show("screenGame");
@@ -766,7 +759,6 @@
     $("feedback").className = "feedback hidden";
     $("feedback").textContent = "";
     const oldWhy = $("whyBtn"); if (oldWhy) oldWhy.remove();
-    updateForceBtn();
     $("nextBtn").classList.add("hidden");
     updateTopbar();
     saveProgress();
@@ -798,7 +790,7 @@
       fb.className = "feedback ok";
       fb.textContent = "✅ ¡Correcto! Esta pregunta sale de la baraja.";
       // En modo audio avanza solo al terminar de decir "Correcto"; si no, tras una breve pausa
-      if (!audioMode && !creationMode) advanceTimer = setTimeout(() => { advanceTimer = null; proceed(); }, 900);
+      if (!audioMode) advanceTimer = setTimeout(() => { advanceTimer = null; proceed(); }, 900);
     } else {
       s.fails++;
       totalMisses++;
@@ -884,7 +876,6 @@
       ? "El informe PDF incluirá las " + r.over3.length + " pregunta(s) que fallaste más de 2 veces, con su respuesta correcta."
       : "No has fallado ninguna pregunta más de 2 veces: el informe contendrá solo el resumen.";
     $("done").textContent = r.total; $("bar").style.width = "100%";
-    prepareSummary();
     show("screenEnd");
     if (audioMode) audioFinish(r);
   }
@@ -1181,78 +1172,6 @@
   });
   if (hasTTS) speechSynthesis.onvoiceschanged = () => {};
 
-  /* ---------- Modo creación (archivo resumen) ---------- */
-  function includedIndices() {
-    const out = [];
-    stats.forEach((s, i) => { if (s && (s.fails > 0 || s.forced)) out.push(i); });
-    return out;
-  }
-  function summaryFileName() {
-    const base = (currentBank || "preguntas.js").replace(/\.js$/i, "");
-    return base + "-resumen.js";
-  }
-  function buildSummaryJs(idxs) {
-    const titulo = TITULO + " - resumen";
-    const lines = idxs.map((i) => "  " + JSON.stringify(PREGUNTAS[i]));
-    return "const TITULO = " + JSON.stringify(titulo) + ";\n\nconst PREGUNTAS = [\n" + lines.join(",\n") + "\n];\n";
-  }
-  function downloadSummary() {
-    const idxs = includedIndices();
-    if (!idxs.length) return false;
-    const blob = new Blob([buildSummaryJs(idxs)], { type: "text/javascript;charset=utf-8" });
-    const a = document.createElement("a");
-    a.href = URL.createObjectURL(blob);
-    a.download = summaryFileName();
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-    setTimeout(() => URL.revokeObjectURL(a.href), 2000);
-    return true;
-  }
-  function prepareSummary() {
-    const btn = $("summaryBtn"), hint = $("summaryHint");
-    btn.classList.toggle("hidden", !creationMode);
-    hint.classList.toggle("hidden", !creationMode);
-    if (!creationMode) return;
-    const n = includedIndices().length;
-    if (n) {
-      downloadSummary();
-      hint.textContent = "Modo creación: se ha descargado " + summaryFileName() + " con " + n + " pregunta(s) (falladas o forzadas). Si no se descargó, pulsa el botón.";
-    } else {
-      hint.textContent = "Modo creación: no hay preguntas falladas ni forzadas, así que no se ha generado ningún archivo.";
-    }
-    btn.disabled = !n;
-  }
-  function updateForceBtn() {
-    const row = $("forceRow"), b = $("forceBtn");
-    const visible = creationMode && !!current;
-    row.classList.toggle("hidden", !visible);
-    if (!visible) return;
-    const on = !!stats[current.idx].forced;
-    b.setAttribute("aria-pressed", on ? "true" : "false");
-    b.textContent = on ? "✅ Incluida en el resumen (pulsa para quitar)" : "📌 Forzar inclusión de esta pregunta";
-  }
-  function applyCreation(on) {
-    creationMode = on;
-    const b = $("creationBtn");
-    b.setAttribute("aria-pressed", on ? "true" : "false");
-    b.textContent = on ? "🛠️ Modo creación: activo" : "🛠️ Modo creación";
-    if (on) {
-      if (audioMode) applyAudio(false);
-    }
-    $("audioBtn").disabled = on;
-    $("speedBtn").disabled = on;
-    updateForceBtn();
-  }
-  $("creationBtn").addEventListener("click", () => applyCreation(!creationMode));
-  $("forceBtn").addEventListener("click", () => {
-    if (!current) return;
-    const s = stats[current.idx];
-    s.forced = !s.forced;
-    updateForceBtn();
-    saveProgress();
-  });
-  $("summaryBtn").addEventListener("click", downloadSummary);
 
   /* ---------- Modo corrección (editar explicaciones) ---------- */
   let corrIdx = 0, corrSaved = [];
@@ -1320,6 +1239,19 @@
         !confirm("Hay cambios sin guardar en esta explicación. ¿Seguir sin guardarlos?")) return;
     corrIdx--;
     renderCorr();
+  }
+  function corrDelete() {
+    const n = PREGUNTAS.length;
+    if (n <= 1) { alert("No puedes eliminar la última pregunta: el archivo quedaría vacío."); return; }
+    const txt = PREGUNTAS[corrIdx].q;
+    const corto = txt.length > 140 ? txt.slice(0, 140) + "…" : txt;
+    if (!confirm("¿Eliminar esta pregunta del archivo?\n\n" + corto + "\n\nDesaparecerá del .js que se genere.")) return;
+    PREGUNTAS.splice(corrIdx, 1);
+    corrSaved.splice(corrIdx, 1);
+    if (corrIdx >= PREGUNTAS.length) corrIdx = PREGUNTAS.length - 1;
+    $("totalQ").textContent = PREGUNTAS.length;
+    renderCorr();
+    $("corrMsg").textContent = "🗑️ Pregunta eliminada (se aplicará al generar el archivo)";
   }
   function corrGenerate() {
     // Si estás editando y hay cambios sin guardar, pregunta si incluirlos
@@ -1400,6 +1332,7 @@
     $("corrMsg").textContent = conv === ta.value ? "No he encontrado fórmulas que convertir" : "🔣 Fórmulas convertidas (recuerda pulsar Guardar)";
     ta.value = conv;
   });
+  $("corrDel").addEventListener("click", corrDelete);
   $("corrPrev").addEventListener("click", corrPrev);
   $("genBtn").addEventListener("click", corrGenerate);
   $("corrBtn").addEventListener("click", startCorrection);
