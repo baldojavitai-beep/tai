@@ -146,6 +146,7 @@
   .why-btn { display: block; margin-top: 10px; background: var(--accent); color: var(--accent-text); border: 0; border-radius: 10px; padding: 10px 16px; min-height: 44px; font-weight: bold; }
   .why-btn:hover { filter: brightness(1.08); }
   .feedback .why { white-space: pre-wrap; color: var(--text); font-weight: normal; margin-top: 8px; padding-top: 8px; border-top: 1px dashed var(--border); }
+  .ai-box { margin-top: 12px; border-color: var(--accent); white-space: pre-wrap; font-weight: normal; line-height: 1.6; }
   .next-row { margin-top: 14px; display: flex; flex-wrap: wrap; gap: 12px; justify-content: center; }
 
   /* Final */
@@ -157,7 +158,7 @@
   .kbd-hint { font-size: .78rem; color: var(--muted); text-align: center; margin-top: 12px; }
 
   /* Modo corrección */
-  body.corr #audioBtn, body.corr #speedBtn, body.corr #visualBtn, body.corr #corrBtn { display: none !important; }
+  body.corr #audioBtn, body.corr #speedBtn, body.corr #visualBtn, body.corr #corrBtn, body.corr #aiKeyBtn { display: none !important; }
   #genBtn { display: none; }
   body.corr #genBtn { display: inline-block; }
   .corr-label { font-size: .8rem; font-weight: bold; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 18px 0 6px; }
@@ -207,7 +208,7 @@
       <li>Si fallas, volverá a salir más adelante.</li>
       <li>Al agotar el nivel ganas un premio y pasas al siguiente.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 14</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 13</div>
   </section>
 
   <!-- Modo corrección -->
@@ -245,6 +246,7 @@
     <div class="question" id="qText"></div>
     <div class="answers" id="answers"></div>
     <div id="feedback" class="feedback hidden" role="status" aria-live="polite"></div>
+    <div id="aiBox" class="feedback ai-box hidden" role="status" aria-live="polite"></div>
     <div class="next-row" id="nextRow"><button class="big-btn hidden" id="nextBtn">Siguiente ➜</button></div>
     <div class="kbd-hint">Teclado: 1-4 para responder · Enter para continuar</div>
     <div class="topbar" style="justify-content:center;margin-top:14px">
@@ -289,6 +291,7 @@
     <button class="theme-btn" id="audioBtn" aria-pressed="false" aria-label="Activar o desactivar el modo audio">🔊 Modo audio</button>
     <button class="theme-btn" id="speedBtn" aria-pressed="false" aria-label="Alternar velocidad de lectura x1 / x2 en modo audio">⏩ Velocidad x1</button>
     <button class="theme-btn" id="visualBtn" aria-pressed="false" aria-label="Activar o desactivar visual suave en las respuestas">🎨 Visual</button>
+    <button class="theme-btn" id="aiKeyBtn" aria-label="Configurar la clave de la IA (Gemini)">🤖 Clave IA</button>
     <button class="theme-btn" id="corrBtn" aria-label="Entrar en el modo corrección de explicaciones" disabled>✏️ Modo corrección</button>
   </footer>
 </div>
@@ -808,6 +811,9 @@
     $("feedback").className = "feedback hidden";
     $("feedback").textContent = "";
     const oldWhy = $("whyBtn"); if (oldWhy) oldWhy.remove();
+    const oldAi = $("aiBtn"); if (oldAi) oldAi.remove();
+    $("aiBox").className = "feedback ai-box hidden";
+    $("aiBox").textContent = "";
     $("nextBtn").classList.add("hidden");
     updateTopbar();
     saveProgress();
@@ -869,6 +875,16 @@
       }
     }
     current.pendingAfter = true;
+    current.chosenOpt = chosenOpt;
+    if (!ok) {
+      const ai = document.createElement("button");
+      ai.type = "button";
+      ai.id = "aiBtn";
+      ai.className = "big-btn secondary";
+      ai.textContent = "🤖 Explicación IA";
+      ai.addEventListener("click", explainAI);
+      $("nextRow").insertBefore(ai, $("nextBtn"));
+    }
     updateTopbar();
     saveProgress();
     const nb = $("nextBtn");
@@ -1290,6 +1306,122 @@
   });
   if (hasTTS) speechSynthesis.onvoiceschanged = () => {};
 
+
+  /* ---------- Explicación con IA (Gemini) ----------
+     Necesita una clave gratuita de Google AI Studio (https://aistudio.google.com/apikey).
+     Se guarda solo en este navegador (localStorage). Si un modelo deja de existir,
+     se prueba el siguiente de la lista: puedes cambiar los nombres aquí. */
+  const MODELOS_IA = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-3.5-flash-lite"];
+  const aiCache = new Map();
+  let aiBusy = false;
+  const getKey = () => { try { return localStorage.getItem("gemini_key") || ""; } catch (e) { return ""; } };
+  const setKey = (k) => { try { if (k) localStorage.setItem("gemini_key", k); else localStorage.removeItem("gemini_key"); } catch (e) {} };
+  function askKey(extra) {
+    const k = prompt((extra ? extra + "\n\n" : "") +
+      "Pega tu clave de la API de Gemini.\n\n" +
+      "Es gratis: entra en https://aistudio.google.com/apikey con tu cuenta de Google y pulsa «Create API key».\n" +
+      "Se guarda solo en este navegador. Déjalo vacío para borrar la clave guardada.", getKey());
+    if (k === null) return null;
+    setKey(k.trim());
+    return k.trim();
+  }
+  function aiPrompt(idx, chosenOpt) {
+    const p = PREGUNTAS[idx];
+    // Las opciones se nombran como aparecen en pantalla (triángulo, rombo, círculo, cuadrado)
+    const ord = current.order;
+    const nameOf = (opt) => SHAPE_NAMES[ord.indexOf(opt)];
+    const ops = ord.map((optIdx, pos) => SHAPE_NAMES[pos] + ": " + p.o[optIdx]).join("\n");
+    return "Eres un profesor paciente y claro, experto en técnicas de memorización. Explica en español, con palabras sencillas y sin jerga, " +
+      "como si se lo contaras a alguien que no conoce el tema (tema del test: " + TITULO + ").\n\n" +
+      "Pregunta: " + p.q + "\n" + ops + "\n\n" +
+      "Respuesta correcta: " + nameOf(p.a) + ": " + p.o[p.a] + "\n" +
+      "Respuesta que ha marcado el alumno (incorrecta): " + nameOf(chosenOpt) + ": " + p.o[chosenOpt] + "\n" +
+      (p.e ? "Explicación original (puede ser técnica, simplifícala): " + p.e + "\n" : "") +
+      "\nEn un máximo de 150 palabras: 1) explica por qué la correcta es correcta, 2) por qué la marcada no lo es, " +
+      "3) termina con una regla para memorizar que ENLACE el concepto de la pregunta (su nombre o sus siglas, tal como aparece en la pregunta) " +
+      "con la respuesta correcta, de modo que al leer la pregunta el alumno recuerde la respuesta. " +
+      "El nombre o las siglas del concepto de la pregunta deben aparecer dentro de la propia regla y mostrar por qué se asocian a cada parte de la respuesta. " +
+      "Por ejemplo, descomponiendo las siglas o el nombre del concepto, o con una frase corta que contenga el término de la pregunta y los elementos de la respuesta. " +
+      "No basta un ejemplo cotidiano suelto que solo ayude a recordar la respuesta sin conectarla con la pregunta. " +
+      "Cuando te refieras a una opción, usa su nombre de figura (triángulo, rombo, círculo o cuadrado), nunca letras como a, b, c o d. " +
+      "Responde solo con texto plano, sin Markdown, sin asteriscos y sin títulos.";
+  }
+  async function callGemini(prompt, key) {
+    let last = "";
+    for (const m of MODELOS_IA) {
+      let res;
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 15000);   // si un modelo tarda más de 15 s, se prueba el siguiente
+      try {
+        res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + m + ":generateContent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({ contents: [{ parts: [{ text: prompt }] }] }),
+          signal: ctl.signal
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        if (e && e.name === "AbortError") { last = "tardó demasiado"; continue; }
+        throw new Error("No hay conexión con Gemini. Revisa tu internet.");
+      }
+      clearTimeout(timer);
+      if (res.ok) {
+        const d = await res.json();
+        const parts = (((d.candidates || [])[0] || {}).content || {}).parts || [];
+        const txt = parts.map((x) => x.text || "").join("").trim();
+        if (txt) return txt;
+        last = "respuesta vacía";
+        continue;
+      }
+      if (res.status === 400 || res.status === 401 || res.status === 403) {
+        let msg = "";
+        try { msg = ((await res.json()).error || {}).message || ""; } catch (e) {}
+        if (res.status !== 400 || /api key/i.test(msg)) {
+          const e = new Error("La clave no es válida o no tiene permiso."); e.auth = true; throw e;
+        }
+        last = "error 400";
+        continue;
+      }
+      last = "error " + res.status;      // 404 / 429 / 503: se prueba el siguiente modelo
+    }
+    throw new Error("No se pudo obtener respuesta de Gemini (" + last + "). Inténtalo en un minuto.");
+  }
+  async function explainAI() {
+    if (aiBusy || !current) return;
+    const cur = current, idx = cur.idx, ch = cur.chosenOpt;
+    const box = $("aiBox"), btn = $("aiBtn");
+    const ck = idx + ":" + ch + ":" + cur.order.join("");   // el orden cambia al repetir la pregunta
+    box.className = "feedback ai-box";
+    if (aiCache.has(ck)) { box.textContent = aiCache.get(ck); return; }
+    let key = getKey();
+    if (!key) {
+      key = askKey();
+      if (!key) { box.className = "feedback ai-box hidden"; return; }
+    }
+    aiBusy = true;
+    if (btn) btn.disabled = true;
+    box.textContent = "🤖 Pensando…";
+    try {
+      let txt = await callGemini(aiPrompt(idx, ch), key);
+      txt = txt.replace(/\*\*(.*?)\*\*/g, "$1").replace(/^#+\s*/gm, "").replace(/^\s*[*\-]\s+/gm, "• ");
+      aiCache.set(ck, txt);
+      if (current === cur) box.textContent = txt;
+    } catch (err) {
+      if (current === cur) {
+        box.textContent = "❌ " + err.message + (err.auth ? " Pulsa de nuevo «Explicación IA» para introducir otra." : "");
+        if (err.auth) setKey("");
+      }
+    } finally {
+      aiBusy = false;
+      const b = $("aiBtn"); if (b) b.disabled = false;
+    }
+  }
+  $("aiKeyBtn").addEventListener("click", () => {
+    const had = !!getKey();
+    const k = askKey();
+    if (k === null) return;
+    alert(k ? "Clave guardada." : (had ? "Clave borrada." : "No se ha guardado ninguna clave."));
+  });
 
   /* ---------- Modo corrección (editar explicaciones) ---------- */
   let corrIdx = 0, corrSaved = [];
