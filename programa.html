@@ -163,6 +163,9 @@
   .corr-label { font-size: .8rem; font-weight: bold; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin: 18px 0 6px; }
   .corr-box { background: var(--bg); border: 2px solid var(--border); border-radius: 12px; padding: 14px 16px; }
   .corr-box.ok { border-color: var(--ok); }
+  .corr-box.ko { border-color: var(--ko); }
+  .corr-box.ko ul { margin: 0; padding-left: 22px; }
+  .corr-box.ko li { margin: 2px 0; }
   #corrE {
     width: 100%; min-height: 180px; resize: vertical; font-family: inherit; font-size: 1rem; line-height: 1.55;
     color: var(--text); background: var(--bg); border: 2px solid var(--border); border-radius: 12px; padding: 14px;
@@ -170,6 +173,12 @@
   #corrE:focus { outline: 3px solid var(--accent); outline-offset: 1px; }
   .del-btn { border-color: var(--ko); color: var(--ko); padding: 4px 14px; min-height: 36px; font-size: .85rem; }
   .del-btn:hover:not(:disabled) { background: var(--ko); color: #fff; }
+  /* Explicación IA */
+  .ai-box { margin-top: 16px; padding: 16px 18px; border-radius: 14px; border: 2px solid var(--accent); background: var(--card); }
+  .ai-box .lbl, .ai-lbl { font-size: .8rem; font-weight: bold; color: var(--muted); text-transform: uppercase; letter-spacing: .05em; margin-bottom: 6px; }
+  .ai-text { white-space: pre-wrap; }
+  .ai-err { color: var(--ko); font-weight: bold; }
+  .ai-actions { display: flex; flex-wrap: wrap; gap: 10px; margin-top: 12px; }
   .corr-msg { min-height: 1.4em; margin: 10px 0 0; font-size: .9rem; color: var(--ok); font-weight: bold; text-align: center; }
 </style>
 </head>
@@ -207,7 +216,7 @@
       <li>Si fallas, volverá a salir más adelante.</li>
       <li>Al agotar el nivel ganas un premio y pasas al siguiente.</li>
     </ul>
-<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 14</div>
+<div style="margin-top:20px;font-size:.75rem;color:var(--muted);text-align:left">VERSION 15</div>
   </section>
 
   <!-- Modo corrección -->
@@ -219,13 +228,24 @@
       <div class="corr-box" id="corrQ"></div>
       <div class="corr-label">Respuesta correcta</div>
       <div class="corr-box ok" id="corrA"></div>
+      <div class="corr-label">Respuestas incorrectas</div>
+      <div class="corr-box ko" id="corrW"></div>
       <div class="corr-label"><label for="corrE">Explicación (editable)</label></div>
       <textarea id="corrE" spellcheck="true"></textarea>
       <div style="margin-top:10px"><button type="button" class="theme-btn" id="corrFix">🔣 Convertir fórmulas del texto</button></div>
       <p class="corr-msg" id="corrMsg" role="status" aria-live="polite"></p>
+      <div id="corrAIBox" class="hidden" role="status" aria-live="polite">
+        <div class="corr-label">Explicación IA</div>
+        <div class="corr-box ai-text" id="corrAIText"></div>
+        <div class="ai-actions">
+          <button type="button" class="theme-btn" id="corrAIUse" disabled>⬆ Sustituir la explicación editable por esta</button>
+          <button type="button" class="theme-btn" id="corrAIRegen" disabled>🔄 Generar de nuevo</button>
+        </div>
+      </div>
       <div class="next-row">
         <button class="big-btn secondary" id="corrPrev">⬅ Anterior</button>
         <button class="big-btn" id="corrSave">💾 Guardar</button>
+        <button class="big-btn secondary" id="corrAI">🤖 Explicación IA</button>
         <button class="big-btn secondary" id="corrNext">Siguiente ➜</button>
       </div>
     </div>
@@ -245,6 +265,7 @@
     <div class="question" id="qText"></div>
     <div class="answers" id="answers"></div>
     <div id="feedback" class="feedback hidden" role="status" aria-live="polite"></div>
+    <div id="aiBox" class="ai-box hidden" role="status" aria-live="polite"></div>
     <div class="next-row" id="nextRow"><button class="big-btn hidden" id="nextBtn">Siguiente ➜</button></div>
     <div class="kbd-hint">Teclado: 1-4 para responder · Enter para continuar</div>
     <div class="topbar" style="justify-content:center;margin-top:14px">
@@ -294,6 +315,7 @@
 </div>
 
 <script src="https://cdnjs.cloudflare.com/ajax/libs/jspdf/2.5.1/jspdf.umd.min.js"></script>
+<script src="promt.js"></script>
 <script>
 (function () {
   "use strict";
@@ -808,6 +830,9 @@
     $("feedback").className = "feedback hidden";
     $("feedback").textContent = "";
     const oldWhy = $("whyBtn"); if (oldWhy) oldWhy.remove();
+    const oldAi = $("aiBtn"); if (oldAi) oldAi.remove();
+    aiToken++;
+    $("aiBox").className = "ai-box hidden"; $("aiBox").textContent = "";
     $("nextBtn").classList.add("hidden");
     updateTopbar();
     saveProgress();
@@ -867,6 +892,13 @@
         });
         $("nextRow").insertBefore(eb, $("nextBtn"));
       }
+      const ab = document.createElement("button");
+      ab.type = "button";
+      ab.id = "aiBtn";
+      ab.className = "big-btn secondary";
+      ab.textContent = "🤖 Explicación IA";
+      ab.addEventListener("click", () => runGameAI(ab));
+      $("nextRow").insertBefore(ab, $("nextBtn"));
     }
     current.pendingAfter = true;
     updateTopbar();
@@ -1291,6 +1323,132 @@
   if (hasTTS) speechSynthesis.onvoiceschanged = () => {};
 
 
+  /* ---------- Explicación por IA (API de Google Gemini) ---------- */
+  const AI_MODELOS_DEFECTO = ["gemini-flash-latest", "gemini-2.5-flash", "gemini-3.5-flash-lite"];
+  let aiToken = 0;
+
+  function aiGetKey() {
+    if (typeof GEMINI_API_KEY !== "undefined" && GEMINI_API_KEY) return String(GEMINI_API_KEY).trim();
+    let k = null;
+    try { k = localStorage.getItem("gemini_api_key"); } catch (e) {}
+    if (k) return k;
+    k = (prompt("Pega tu clave de la API de Google (Gemini). Se guardará solo en este navegador:") || "").trim();
+    if (k) { try { localStorage.setItem("gemini_api_key", k); } catch (e) {} }
+    return k;
+  }
+  function aiBuildPrompt(p) {
+    const L = ["a", "b", "c", "d"];
+    const base = (typeof promt !== "undefined" && promt) ? String(promt) : "";
+    if (!base) throw new Error("No se encontró la variable «promt». Comprueba que existe el archivo promt.js junto a este programa.");
+    // Sin letras ni posiciones: así la IA no dice «la opción a» ni lo usa en la regla
+    return base + "\n\nPregunta: " + p.q + "\n\nOpciones:\n" +
+      p.o.map((o) => "- " + o).join("\n") +
+      "\n\nRespuesta correcta: " + p.o[p.a];
+  }
+  async function aiAsk(p) {
+    const texto = aiBuildPrompt(p);
+    const key = aiGetKey();
+    if (!key) throw new Error("Falta la clave de la API de Google.");
+    // Lista de modelos: se prueba el siguiente si uno falla (no existe, sin cupo, saturado, lento)
+    let modelos = AI_MODELOS_DEFECTO;
+    if (typeof GEMINI_MODELS !== "undefined" && Array.isArray(GEMINI_MODELS) && GEMINI_MODELS.length) modelos = GEMINI_MODELS;
+    else if (typeof GEMINI_MODEL !== "undefined" && GEMINI_MODEL) modelos = [GEMINI_MODEL];
+    let last = "";
+    for (const model of modelos) {
+      const ctl = new AbortController();
+      const timer = setTimeout(() => ctl.abort(), 20000);
+      let res;
+      try {
+        res = await fetch("https://generativelanguage.googleapis.com/v1beta/models/" + encodeURIComponent(model) + ":generateContent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json", "x-goog-api-key": key },
+          body: JSON.stringify({ contents: [{ role: "user", parts: [{ text: texto }] }] }),
+          signal: ctl.signal
+        });
+      } catch (e) {
+        clearTimeout(timer);
+        if (e && e.name === "AbortError") { last = model + ": tardó demasiado"; continue; }
+        throw new Error("No se pudo conectar con la API (¿sin internet?).");
+      }
+      clearTimeout(timer);
+      let data = null;
+      try { data = await res.json(); } catch (e) {}
+      if (res.ok) {
+        const parts = data && data.candidates && data.candidates[0] && data.candidates[0].content && data.candidates[0].content.parts;
+        const out = (parts || []).map((x) => x.text || "").join("").trim();
+        if (out) return latexToUnicode(out.replace(/\*\*/g, "").replace(/^\s*[*-]\s+/gm, "• "));
+        last = model + ": respuesta vacía";
+        continue;
+      }
+      const msg = data && data.error && data.error.message ? data.error.message : "HTTP " + res.status;
+      if (res.status === 401 || res.status === 403 || (res.status === 400 && /api key/i.test(msg))) {
+        try { localStorage.removeItem("gemini_api_key"); } catch (e) {}
+        throw new Error("La clave no es válida o no tiene permiso. Pulsa de nuevo el botón para introducir otra.");
+      }
+      last = model + ": " + (res.status === 429 ? "sin cupo" : msg.slice(0, 120));   // 404 / 429 / 503...: siguiente modelo
+    }
+    throw new Error("Ningún modelo ha respondido (" + last + "). Inténtalo en un minuto.");
+  }
+
+  // Modo juego: botón «Explicación IA» tras fallar
+  function runGameAI(btn) {
+    if (!current) return;
+    const my = ++aiToken, p = PREGUNTAS[current.idx], box = $("aiBox");
+    btn.disabled = true;
+    box.className = "ai-box";
+    box.textContent = "⏳ Consultando a la IA…";
+    aiAsk(p).then((t) => {
+      if (my !== aiToken) return;
+      box.textContent = "";
+      const l = document.createElement("div"); l.className = "lbl"; l.textContent = "🤖 Explicación IA";
+      const d = document.createElement("div"); d.className = "ai-text"; d.textContent = t;
+      box.append(l, d);
+      btn.textContent = "🔄 Generar de nuevo";
+    }).catch((err) => {
+      if (my !== aiToken) return;
+      box.textContent = "";
+      const d = document.createElement("div"); d.className = "ai-err"; d.textContent = "⚠️ " + err.message;
+      box.appendChild(d);
+    }).finally(() => { if (my === aiToken) btn.disabled = false; });
+  }
+
+  // Modo corrección
+  function resetCorrAI() {
+    aiToken++;
+    $("corrAIBox").classList.add("hidden");
+    $("corrAIText").textContent = "";
+    $("corrAIText").classList.remove("ai-err");
+    $("corrAIUse").disabled = true;
+    $("corrAIRegen").disabled = true;
+    $("corrAI").disabled = false;
+  }
+  function runCorrAI() {
+    const my = ++aiToken, p = PREGUNTAS[corrIdx], t = $("corrAIText");
+    $("corrAIBox").classList.remove("hidden");
+    t.classList.remove("ai-err");
+    t.textContent = "⏳ Consultando a la IA…";
+    $("corrAI").disabled = true; $("corrAIUse").disabled = true; $("corrAIRegen").disabled = true;
+    aiAsk(p).then((txt) => {
+      if (my !== aiToken) return;
+      t.textContent = txt;
+      $("corrAIUse").disabled = false;
+    }).catch((err) => {
+      if (my !== aiToken) return;
+      t.classList.add("ai-err");
+      t.textContent = "⚠️ " + err.message;
+    }).finally(() => {
+      if (my !== aiToken) return;
+      $("corrAI").disabled = false; $("corrAIRegen").disabled = false;
+    });
+  }
+  function corrUseAI() {
+    const t = $("corrAIText");
+    if (t.classList.contains("ai-err") || $("corrAIUse").disabled) return;
+    $("corrE").value = t.textContent;
+    $("corrMsg").textContent = "⬆ Explicación sustituida por la de la IA (recuerda pulsar Guardar)";
+    $("corrE").focus({ preventScroll: true });
+  }
+
   /* ---------- Modo corrección (editar explicaciones) ---------- */
   let corrIdx = 0, corrSaved = [];
   function startCorrection() {
@@ -1310,8 +1468,19 @@
     $("corrBar").style.width = (corrIdx / n * 100) + "%";
     $("corrQ").textContent = p.q;
     $("corrA").textContent = p.o[p.a];
+    const w = $("corrW");
+    w.innerHTML = "";
+    const ul = document.createElement("ul");
+    p.o.forEach((o, i) => {
+      if (i === p.a) return;
+      const li = document.createElement("li");
+      li.textContent = o;
+      ul.appendChild(li);
+    });
+    w.appendChild(ul);
     $("corrE").value = corrSaved[corrIdx];
     $("corrMsg").textContent = "";
+    resetCorrAI();
     $("corrNext").textContent = corrIdx === n - 1 ? "Finalizar y descargar ⬇" : "Siguiente ➜";
     $("corrPrev").disabled = corrIdx === 0;
     window.scrollTo(0, 0);
@@ -1452,6 +1621,9 @@
     ta.value = conv;
   });
   $("corrDel").addEventListener("click", corrDelete);
+  $("corrAI").addEventListener("click", runCorrAI);
+  $("corrAIRegen").addEventListener("click", runCorrAI);
+  $("corrAIUse").addEventListener("click", corrUseAI);
   $("corrPrev").addEventListener("click", corrPrev);
   $("genBtn").addEventListener("click", corrGenerate);
   $("corrBtn").addEventListener("click", startCorrection);
@@ -1479,7 +1651,7 @@
     }
     if ($("screenGame").classList.contains("hidden")) return;
     if (!answered && e.key >= "1" && e.key <= "4") answer(Number(e.key) - 1);
-    else if (answered && e.key === "Enter") { e.preventDefault(); proceed(); }
+    else if (answered && e.key === "Enter" && e.target.id !== "aiBtn") { e.preventDefault(); proceed(); }
   });
 
   initBanks();
